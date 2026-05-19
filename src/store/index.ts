@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
 import { User, Project, Transaction, DashboardData, Category } from '../types';
+import { storage } from '../utils/storage';
 import {
   authService,
   projectService,
@@ -28,8 +28,8 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loadFromStorage: async () => {
     try {
-      const token = await SecureStore.getItemAsync('df_token');
-      const userStr = await SecureStore.getItemAsync('df_user');
+      const token = await storage.getItem('df_token');
+      const userStr = await storage.getItem('df_user');
       if (token && userStr) {
         set({ token, user: JSON.parse(userStr), isAuthenticated: true, isLoading: false });
       } else {
@@ -42,20 +42,20 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (email, password) => {
     const { data } = await authService.login(email, password);
-    await SecureStore.setItemAsync('df_token', data.token);
-    await SecureStore.setItemAsync('df_user', JSON.stringify(data.user));
+    await storage.setItem('df_token', data.token);
+    await storage.setItem('df_user', JSON.stringify(data.user));
     set({ user: data.user, token: data.token, isAuthenticated: true });
   },
 
   loginWithGoogle: async (token: string, user: User) => {
-    await SecureStore.setItemAsync('df_token', token);
-    await SecureStore.setItemAsync('df_user', JSON.stringify(user));
+    await storage.setItem('df_token', token);
+    await storage.setItem('df_user', JSON.stringify(user));
     set({ user, token, isAuthenticated: true });
   },
 
   logout: async () => {
-    await SecureStore.deleteItemAsync('df_token');
-    await SecureStore.deleteItemAsync('df_user');
+    await storage.removeItem('df_token');
+    await storage.removeItem('df_user');
     set({ user: null, token: null, isAuthenticated: false });
   },
 }));
