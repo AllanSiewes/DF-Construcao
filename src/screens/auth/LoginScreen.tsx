@@ -64,10 +64,12 @@ export const LoginScreen: React.FC = () => {
 
   const validate = () => {
     const e: typeof errors = {};
-    if (!email.trim()) e.email = 'Informe o e-mail.';
-    else if (email.trim() !== 'admin' && !/\S+@\S+\.\S+/.test(email)) e.email = 'E-mail inválido.';
+    const emailVal = email.trim();
+    const isMock = emailVal === 'admin';
+    if (!emailVal) e.email = 'Informe o e-mail.';
+    else if (!isMock && !/\S+@\S+\.\S+/.test(emailVal)) e.email = 'E-mail inválido.';
     if (!password.trim()) e.password = 'Informe a senha.';
-    else if (password.length < 6) e.password = 'Mínimo 6 caracteres.';
+    else if (!isMock && password.length < 6) e.password = 'Mínimo 6 caracteres.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
