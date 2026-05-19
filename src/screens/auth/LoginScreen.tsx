@@ -199,6 +199,18 @@ export const LoginScreen: React.FC = () => {
             <DFText variant="caption2" color={Colors.textDisabled} center style={{ marginTop: 4 }}>
               v1.0.0 · Jaraguá do Sul / SC
             </DFText>
+            <TouchableOpacity
+              onPress={() => {
+                const { Linking } = require('react-native');
+                Linking.openURL('https://github.com/generosotiago/DF-Construcao');
+              }}
+              activeOpacity={0.7}
+              style={{ marginTop: 8 }}
+            >
+              <DFText variant="caption2" color={Colors.orange} center>
+                github.com/generosotiago/DF-Construcao
+              </DFText>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
