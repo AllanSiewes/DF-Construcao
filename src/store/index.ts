@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { User, Project, Transaction, DashboardData, Category } from '../types';
 import { storage } from '../utils/storage';
+import { MOCK_USER, MOCK_DASHBOARD, MOCK_PROJECTS, MOCK_TRANSACTIONS, MOCK_CATEGORIES, MOCK_CASHFLOW } from '../utils/mockData';
+
+const MOCK_EMAIL = 'admin';
+const MOCK_PASSWORD = '12345678';
 import {
   authService,
   projectService,
@@ -41,6 +45,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   login: async (email, password) => {
+    if (email === MOCK_EMAIL && password === MOCK_PASSWORD) {
+      await storage.setItem('df_token', 'mock-token');
+      await storage.setItem('df_user', JSON.stringify(MOCK_USER));
+      set({ user: MOCK_USER, token: 'mock-token', isAuthenticated: true });
+      return;
+    }
     const { data } = await authService.login(email, password);
     await storage.setItem('df_token', data.token);
     await storage.setItem('df_user', JSON.stringify(data.user));
@@ -74,6 +84,11 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   fetch: async () => {
     set({ isLoading: true, error: null });
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        set({ data: MOCK_DASHBOARD, isLoading: false });
+        return;
+      }
       const { data } = await reportService.dashboard();
       set({ data, isLoading: false });
     } catch (e: any) {
@@ -103,6 +118,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        let projects = MOCK_PROJECTS;
+        if (params?.status) projects = projects.filter(p => p.status === params.status);
+        if (params?.search) {
+          const s = params.search.toLowerCase();
+          projects = projects.filter(p => p.name.toLowerCase().includes(s) || p.client.toLowerCase().includes(s));
+        }
+        set({ projects, isLoading: false });
+        return;
+      }
       const { data } = await projectService.list(params);
       set({ projects: data.projects, isLoading: false });
     } catch (e: any) {
@@ -113,6 +139,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchOne: async (id) => {
     set({ isLoading: true });
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        const project = MOCK_PROJECTS.find(p => p.id === id) || null;
+        const transactions = MOCK_TRANSACTIONS.filter(t => t.project_id === id);
+        set({ selectedProject: project ? { ...project, transactions } as any : null, isLoading: false });
+        return;
+      }
       const { data } = await projectService.get(id);
       set({ selectedProject: data, isLoading: false });
     } catch (e: any) {
@@ -156,6 +189,13 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   fetchAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        let txs = [...MOCK_TRANSACTIONS].sort((a, b) => b.date.localeCompare(a.date));
+        if (params?.type) txs = txs.filter(t => t.type === params.type);
+        set({ transactions: txs, total: txs.length, isLoading: false });
+        return;
+      }
       const { data } = await transactionService.list(params);
       set({ transactions: data.transactions, total: data.total, isLoading: false });
     } catch (e: any) {
@@ -184,6 +224,12 @@ export const useCategoryStore = create<CategoryState>((set) => ({
   categories: [],
   fetchAll: async (params) => {
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        const cats = params?.type ? MOCK_CATEGORIES.filter(c => c.type === params.type) : MOCK_CATEGORIES;
+        set({ categories: cats });
+        return;
+      }
       const { data } = await categoryService.list(params);
       set({ categories: data.categories });
     } catch {}

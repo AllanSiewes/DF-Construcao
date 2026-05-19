@@ -14,6 +14,8 @@ import { Colors, Spacing, Radius } from '../../theme';
 import { reportService } from '../../services/api';
 import { formatCurrency } from '../../utils/format';
 import { CashflowItem } from '../../types';
+import { MOCK_CASHFLOW } from '../../utils/mockData';
+import { storage } from '../../utils/storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CHART_WIDTH = SCREEN_WIDTH - Spacing.lg * 2 - Spacing.md * 2;
@@ -26,6 +28,19 @@ export const ReportsScreen: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const token = await storage.getItem('df_token');
+      if (token === 'mock-token') {
+        setCashflow(MOCK_CASHFLOW);
+        setCategoryData([
+          { category: { name: 'Mão de Obra', color: '#f97316' }, total: '17200', count: 4 },
+          { category: { name: 'Material de Construção', color: '#ef4444' }, total: '11600', count: 5 },
+          { category: { name: 'Equipamentos', color: '#eab308' }, total: '3800', count: 2 },
+          { category: { name: 'Combustível', color: '#06b6d4' }, total: '1950', count: 3 },
+          { category: { name: 'Alimentação', color: '#f59e0b' }, total: '1440', count: 4 },
+        ]);
+        setLoading(false);
+        return;
+      }
       const [cfRes, catRes] = await Promise.all([
         reportService.cashflow(6),
         reportService.byCategory({ type: 'despesa' }),
