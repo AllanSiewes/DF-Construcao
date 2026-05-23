@@ -141,7 +141,7 @@ export const LoginScreen: React.FC = () => {
         setNome('');
         
       } else {
-        // --- PROCESSO DE LOGIN ---
+        // --- PROCESSO DE LOGIN NO SUPABASE ---
         const { data, error } = await supabase
           .from('usuarios')
           .select('id, nome, email')
@@ -152,20 +152,21 @@ export const LoginScreen: React.FC = () => {
         if (error) throw error;
 
         if (!data) {
-          // Erro específico de login: exibe a mensagem unificada nos dois campos
+          // Erro específico de credenciais incorretas
           setErrors({
             email: 'E-mail ou senha incorretos.',
             password: 'E-mail ou senha incorretos.'
           });
         } else {
           Alert.alert('Bem-vindo', `Olá, ${data.nome}!`);
+          
+          // Passando os dados corretos para o Zustand Store
           await setSessionUser(data.email, 'sessao_ativa'); 
         }
       }
     } catch (err: any) {
-      console.error('Erro de conexão/banco:', err);
-      
-      // Erro genérico de comunicação exibido de forma amigável na tela
+      // O ERRO ESTAVA AQUI: Esta parte precisa ficar dentro do CATCH!
+      console.error('Erro detalhado:', err);
       setErrors({
         email: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.'
       });
