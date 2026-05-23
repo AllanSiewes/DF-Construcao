@@ -86,11 +86,13 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   fetch: async () => {
     set({ isLoading: true, error: null });
     try {
-      const { data: txs, error } = await supabase
+      // 1. Busca transações para calcular totais
+      const { data: txs, error: txsError } = await supabase
         .from('transacoes')
-        .select('valor, tipo_transacao');
+        .select('valor, tipo_transacao, id, obra_id, descricao, data, categoria, forma_pagamento, status')
+        .order('data', { ascending: false });
 
-      if (error) throw error;
+      if (txsError) throw txsError;
 
       let receitas = 0;
       let despesas = 0;
@@ -104,12 +106,27 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         }
       });
 
+      // 2. Mapeia estritamente as transações recentes corrigindo o erro de sintaxe do clone de array
+      const mappedRecent: Transaction[] = (txs || []).slice(0, 5).map((t: any): Transaction => ({
+        id: String(t.id),
+        project_id: String(t.obra_id),
+        amount: Number(t.valor),
+        type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
+        date: t.data,
+        description: t.descricao,
+        category: t.categoria || 'Geral',
+        user_id: 'sistema',
+        createdAt: t.data || new Date().toISOString(),
+        payment_method: t.forma_pagamento || 'Dinheiro',
+        status: t.status || 'pago',
+      }));
+
       set({
         data: {
           totalIncome: receitas,
           totalExpenses: despesas,
-          balance: receitas - despesas, // O fallback as any contorna as diferenças do tipo DashboardData
-          recentTransactions: [],
+          balance: receitas - despesas,
+          recentTransactions: mappedRecent,
         } as any,
         isLoading: false,
       });
