@@ -388,31 +388,48 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   },
 
   create: async (data: Record<string, any>) => {
-    const payload = {
-      tipo_transacao: data.type === 'revenue' || data.type === 'receita' ? 'receita' : 'despesa',
-      valor: Number(data.amount),
-      descricao: data.description || 'Transação de Obra',
-      data: data.date ? data.date.split('T')[0] : new Date().toISOString().split('T')[0],
-      obra_id: Number(data.project_id),
-      status: data.status || 'pago',
-      categoria: data.category || 'Geral',
-      forma_pagamento: data.payment_method || 'dinheiro'
-    };
+  
+  if (!data.amount) throw new Error("Valor da transação é obrigatório");
 
+  const payload = {
+    tipo_transacao: data.type === 'revenue' || data.type === 'receita' ? 'receita' : 'despesa',
+    valor: Number(data.amount) || 0,
+    descricao: data.description || 'Transação de Obra',
+    data: data.date ? data.date.split('T')[0] : new Date().toISOString().split('T')[0],
+    obra_id: data.project_id ? Number(data.project_id) : null,
+    status: data.status || 'pago',
+    categoria: data.category || 'Geral',
+    forma_pagamento: data.payment_method || 'dinheiro'
+  };
+
+    try {
+    console.log("DEBUG: Iniciando insert de transação...", payload);
+    
     const { data: res, error } = await supabase
       .from('transacoes')
       .insert([payload])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("DEBUG: Erro retornado pelo Supabase:", error);
+      throw error;
+    }
 
     const newTx = mapTransaction(res);
-    set((state: TransactionState) => ({ transactions: [newTx, ...state.transactions] }));
+    set((state: TransactionState) => ({ 
+      transactions: [newTx, ...state.transactions] 
+    }));
     
-    useDashboardStore.getState().fetch();
+    // Atualiza o dashboard após sucesso
+    await useDashboardStore.getState().fetch();
+    
     return newTx;
-  },
+  } catch (err) {
+    console.error("DEBUG: Erro crítico na criação da transação:", err);
+    throw err;
+  }
+},
 
   remove: async (id: string) => {
     const { error } = await supabase
