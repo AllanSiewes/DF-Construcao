@@ -92,7 +92,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       // 1. Busca transações para calcular totais
       const { data: txs, error: txsError } = await supabase
         .from('transacoes')
-        .select('valor, tipo_transacao, id, obra_id, descricao, data, categoria, forma_pagamento, status')
+        .select('valor, tipo_transacao, id, obra_id, descricao, data, categoria, forma_pagamento, status, obras(nome_da_obra)')
         .order('data', { ascending: false });
 
       if (txsError) throw txsError;
@@ -210,6 +210,8 @@ const mapTransaction = (t: any): Transaction => {
   return {
     id: String(t.id),
     project_id: t.obra_id ? String(t.obra_id) : undefined,
+    // Aqui está a mágica: pegamos o nome da obra via join (t.obras.nome_da_obra)
+    project_name: t.obras?.nome_da_obra || 'Geral', 
     amount: Number(t.valor),
     type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
     date: t.data || new Date().toISOString().split('T')[0],
@@ -445,9 +447,6 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   },
 }));
 
-// ==========================================
-// 5. CATEGORY STORE
-// ==========================================
 interface CategoryState {
   categories: Category[];
   fetchAll: (params?: Record<string, any>) => Promise<void>;

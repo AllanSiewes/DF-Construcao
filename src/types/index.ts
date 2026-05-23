@@ -49,6 +49,7 @@ export interface Transaction {
   status: 'pendente' | 'pago' | 'cancelado' | 'atrasado';
   notes?: string;
   project_id?: string;
+  project_name?: string;
   category_id?: string;
   user_id: string;
   category?: Category;
