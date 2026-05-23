@@ -160,8 +160,8 @@ export const LoginScreen: React.FC = () => {
         } else {
           Alert.alert('Bem-vindo', `Olá, ${data.nome}!`);
           
-          // Passando os dados corretos para o Zustand Store
-          await setSessionUser(data.email, 'sessao_ativa'); 
+          // Enviando o objeto formatado com os dados vindos do Supabase
+          await setSessionUser({ nome: data.nome, email: data.email }, 'sessao_ativa'); 
         }
       }
     } catch (err: any) {

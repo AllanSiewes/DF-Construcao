@@ -18,7 +18,8 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  
+  login: (userData: { nome: string; email: string }, token: string) => Promise<void>;
   loginWithGoogle: (token: string, user: User) => Promise<void>;
   logout: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -44,17 +45,19 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  login: async (email, password) => {
-    if (email === MOCK_EMAIL && password === MOCK_PASSWORD) {
-      await storage.setItem('df_token', 'mock-token');
-      await storage.setItem('df_user', JSON.stringify(MOCK_USER));
-      set({ user: MOCK_USER, token: 'mock-token', isAuthenticated: true });
-      return;
-    }
-    const { data } = await authService.login(email, password);
-    await storage.setItem('df_token', data.token);
-    await storage.setItem('df_user', JSON.stringify(data.user));
-    set({ user: data.user, token: data.token, isAuthenticated: true });
+  login: async (userData, token) => {
+    const sessionUser: User = {
+      id: userData.email, 
+      name: userData.nome,
+      email: userData.email,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+    };
+
+    await storage.setItem('df_token', token);
+    await storage.setItem('df_user', JSON.stringify(sessionUser));
+    
+    set({ user: sessionUser, token: token, isAuthenticated: true });
   },
 
   loginWithGoogle: async (token: string, user: User) => {
