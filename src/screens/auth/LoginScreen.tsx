@@ -73,7 +73,6 @@ export const LoginScreen: React.FC = () => {
     const e: typeof errors = {};
     const emailVal = email.trim();
     
-    // Validação obrigatória do campo nome apenas se o usuário clicou em Cadastrar-se
     if (isSignUp && !nome.trim()) {
       e.name = 'Informe o seu nome.';
     }
@@ -102,29 +101,32 @@ export const LoginScreen: React.FC = () => {
   const handleSubmit = async () => {
     if (!validate()) return;
     setLoading(true);
+    setErrors({}); // Limpa erros anteriores ao tentar novamente
 
     const emailFormatado = email.trim().toLowerCase();
-    
-    // Criptografa a senha gerando uma string única (Hash) antes de qualquer operação com o banco
     const senhaCriptografada = gerarHashSenha(password);
 
     try {
       if (isSignUp) {
         // --- PROCESSO DE CADASTRO ---
+        
         // 1. Verifica duplicidade de e-mail
-        const { data: usuarioExistente } = await supabase
+        const { data: usuarioExistente, error: fetchError } = await supabase
           .from('usuarios')
           .select('email')
           .eq('email', emailFormatado)
           .maybeSingle();
 
+        if (fetchError) throw fetchError;
+
         if (usuarioExistente) {
-          Alert.alert('Atenção', 'Este e-mail já está cadastrado no sistema.');
+          // Exibe o erro específico direto no input de e-mail
+          setErrors({ email: 'Este e-mail já está cadastrado no sistema.' });
           setLoading(false);
           return;
         }
 
-        // 2. Insere na tabela 'usuarios' gravando apenas a senha criptografada
+        // 2. Insere na tabela 'usuarios'
         const { error: insertError } = await supabase
           .from('usuarios')
           .insert([
@@ -134,13 +136,12 @@ export const LoginScreen: React.FC = () => {
         if (insertError) throw insertError;
 
         Alert.alert('Sucesso!', 'Sua conta foi criada! Faça o login agora.');
-        setIsSignUp(false); // Joga o usuário de volta para o modo login
+        setIsSignUp(false);
         setPassword('');
         setNome('');
         
       } else {
         // --- PROCESSO DE LOGIN ---
-        // Busca batendo o e-mail e a senha que foi criptografada idêntica no app
         const { data, error } = await supabase
           .from('usuarios')
           .select('id, nome, email')
@@ -151,14 +152,23 @@ export const LoginScreen: React.FC = () => {
         if (error) throw error;
 
         if (!data) {
-          Alert.alert('Acesso negado', 'E-mail ou senha incorretos. Tente novamente.');
+          // Erro específico de login: exibe a mensagem unificada nos dois campos
+          setErrors({
+            email: 'E-mail ou senha incorretos.',
+            password: 'E-mail ou senha incorretos.'
+          });
         } else {
           Alert.alert('Bem-vindo', `Olá, ${data.nome}!`);
           await setSessionUser(data.email, 'sessao_ativa'); 
         }
       }
     } catch (err: any) {
-      Alert.alert('Erro na operação', err.message || 'Falha de comunicação com o banco de dados.');
+      console.error('Erro de conexão/banco:', err);
+      
+      // Erro genérico de comunicação exibido de forma amigável na tela
+      setErrors({
+        email: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.'
+      });
     } finally {
       setLoading(false);
     }
