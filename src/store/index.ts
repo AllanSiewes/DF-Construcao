@@ -1,24 +1,15 @@
 import { create } from 'zustand';
 import { User, Project, Transaction, DashboardData, Category } from '../types';
 import { storage } from '../utils/storage';
-import { MOCK_USER, MOCK_DASHBOARD, MOCK_PROJECTS, MOCK_TRANSACTIONS, MOCK_CATEGORIES, MOCK_CASHFLOW } from '../utils/mockData';
 
-const MOCK_EMAIL = 'admin';
-const MOCK_PASSWORD = '12345678';
-import {
-  authService,
-  projectService,
-  transactionService,
-  reportService,
-  categoryService,
-} from '../services/api';
+// Conexão centralizada do Supabase
+import { supabase } from '../services/supabase';
 
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  
   login: (userData: { nome: string; email: string }, token: string) => Promise<void>;
   loginWithGoogle: (token: string, user: User) => Promise<void>;
   logout: () => Promise<void>;
@@ -67,9 +58,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    // 1. Limpa os storages locais
     await storage.removeItem('df_token');
     await storage.removeItem('df_user');
+    
+    // 2. Reseta o estado de autenticação
     set({ user: null, token: null, isAuthenticated: false });
+
+    // 3. Limpa os dados residuais das outras stores na memória
+    useProjectStore.setState({ projects: [], selectedProject: null });
+    useTransactionStore.setState({ transactions: [], total: 0 });
+    useDashboardStore.setState({ data: null });
   },
 }));
 
@@ -87,13 +86,36 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   fetch: async () => {
     set({ isLoading: true, error: null });
     try {
-      const token = await storage.getItem('df_token');
-      if (token === 'mock-token') {
-        set({ data: MOCK_DASHBOARD, isLoading: false });
-        return;
-      }
-      const { data } = await reportService.dashboard();
-      set({ data, isLoading: false });
+      // Agrega dados de transações do Supabase para montar o Dashboard em tempo real
+      const { data: txs, error } = await supabase
+        .from('transacoes')
+        .select('amount, type');
+
+      if (error) throw error;
+
+      let receitas = 0;
+      let despesas = 0;
+
+      txs?.forEach((t) => {
+        const valor = Number(t.amount);
+        if (t.type === 'revenue' || t.type === 'receita') {
+          receitas += valor;
+        } else if (t.type === 'expense' || t.type === 'despesa') {
+          despesas += valor;
+        }
+      });
+
+      const saldo = receitas - despesas;
+
+      set({
+        data: {
+          balance: saldo,
+          income: receitas,
+          expense: despesas,
+          recentTransactions: [], // Pode ser populado se seu tipo exigir
+        },
+        isLoading: false,
+      });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }
@@ -121,19 +143,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
-      const token = await storage.getItem('df_token');
-      if (token === 'mock-token') {
-        let projects = MOCK_PROJECTS;
-        if (params?.status) projects = projects.filter(p => p.status === params.status);
-        if (params?.search) {
-          const s = params.search.toLowerCase();
-          projects = projects.filter(p => p.name.toLowerCase().includes(s) || p.client.toLowerCase().includes(s));
-        }
-        set({ projects, isLoading: false });
-        return;
+      let query = supabase.from('obras').select('*').order('created_at', { ascending: false });
+
+      if (params?.status) {
+        query = query.eq('status', params.status);
       }
-      const { data } = await projectService.list(params);
-      set({ projects: data.projects, isLoading: false });
+      if (params?.search) {
+        query = query.ilike('name', `%${params.search}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      set({ projects: data as Project[], isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }
@@ -142,33 +164,61 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchOne: async (id) => {
     set({ isLoading: true });
     try {
-      const token = await storage.getItem('df_token');
-      if (token === 'mock-token') {
-        const project = MOCK_PROJECTS.find(p => p.id === id) || null;
-        const transactions = MOCK_TRANSACTIONS.filter(t => t.project_id === id);
-        set({ selectedProject: project ? { ...project, transactions } as any : null, isLoading: false });
-        return;
-      }
-      const { data } = await projectService.get(id);
-      set({ selectedProject: data, isLoading: false });
+      const { data: obra, error: obraError } = await supabase
+        .from('obras')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (obraError) throw obraError;
+
+      // Busca transações atreladas a essa obra específica
+      const { data: txs, error: txsError } = await supabase
+        .from('transacoes')
+        .select('*')
+        .eq('project_id', id);
+
+      if (txsError) throw txsError;
+
+      set({ 
+        selectedProject: obra ? { ...obra, transactions: txs } as any : null, 
+        isLoading: false 
+      });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }
   },
 
   create: async (data) => {
-    const { data: res } = await projectService.create(data);
-    set((state) => ({ projects: [res.project, ...state.projects] }));
-    return res.project;
+    const { data: res, error } = await supabase
+      .from('obras')
+      .insert([data])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    set((state) => ({ projects: [res as Project, ...state.projects] }));
+    return res as Project;
   },
 
   update: async (id, data) => {
-    await projectService.update(id, data);
+    const { error } = await supabase
+      .from('obras')
+      .update(data)
+      .eq('id', id);
+
+    if (error) throw error;
     await get().fetchAll();
   },
 
   remove: async (id) => {
-    await projectService.delete(id);
+    const { error } = await supabase
+      .from('obras')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
     set((state) => ({ projects: state.projects.filter((p) => p.id !== id) }));
   },
 }));
@@ -192,29 +242,58 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   fetchAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
-      const token = await storage.getItem('df_token');
-      if (token === 'mock-token') {
-        let txs = [...MOCK_TRANSACTIONS].sort((a, b) => b.date.localeCompare(a.date));
-        if (params?.type) txs = txs.filter(t => t.type === params.type);
-        set({ transactions: txs, total: txs.length, isLoading: false });
-        return;
+      let query = supabase.from('transacoes').select('*', { count: 'exact' }).order('date', { ascending: false });
+
+      if (params?.type) {
+        query = query.eq('type', params.type);
       }
-      const { data } = await transactionService.list(params);
-      set({ transactions: data.transactions, total: data.total, isLoading: false });
+      if (params?.project_id) {
+        query = query.eq('project_id', params.project_id);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+
+      set({ transactions: data as Transaction[], total: count || 0, isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }
   },
 
   create: async (data) => {
-    const { data: res } = await transactionService.create(data);
-    set((state) => ({ transactions: [res.transaction, ...state.transactions] }));
-    return res.transaction;
+    // Garante que o tipo mapeie corretamente independente de vir como receita/despesa ou revenue/expense
+    const payload = {
+      ...data,
+      type: data.type === 'receita' ? 'revenue' : data.type === 'despesa' ? 'expense' : data.type
+    };
+
+    const { data: res, error } = await supabase
+      .from('transacoes')
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    set((state) => ({ transactions: [res as Transaction, ...state.transactions] }));
+    
+    // Atualiza o dashboard automaticamente após criar uma transação
+    useDashboardStore.getState().fetch();
+    
+    return res as Transaction;
   },
 
   remove: async (id) => {
-    await transactionService.delete(id);
+    const { error } = await supabase
+      .from('transacoes')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
     set((state) => ({ transactions: state.transactions.filter((t) => t.id !== id) }));
+    
+    // Atualiza o dashboard automaticamente após remover
+    useDashboardStore.getState().fetch();
   },
 }));
 
@@ -227,14 +306,13 @@ export const useCategoryStore = create<CategoryState>((set) => ({
   categories: [],
   fetchAll: async (params) => {
     try {
-      const token = await storage.getItem('df_token');
-      if (token === 'mock-token') {
-        const cats = params?.type ? MOCK_CATEGORIES.filter(c => c.type === params.type) : MOCK_CATEGORIES;
-        set({ categories: cats });
-        return;
+      let query = supabase.from('categorias').select('*');
+      if (params?.type) {
+        query = query.eq('type', params.type);
       }
-      const { data } = await categoryService.list(params);
-      set({ categories: data.categories });
+      const { data, error } = await query;
+      if (error) throw error;
+      set({ categories: data as Category[] });
     } catch {}
   },
 }));
