@@ -26,6 +26,7 @@ export interface Project {
   lucro?: number;
   percentual_orcamento?: number;
   createdAt: string;
+  transactions?: Transaction[]; // Campo opcional para carregar detalhes adicionais
 }
 
 export interface Category {

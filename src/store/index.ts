@@ -5,6 +5,9 @@ import { storage } from '../utils/storage';
 // Conexão centralizada do Supabase
 import { supabase } from '../services/supabaseClient';
 
+// ==========================================
+// 1. AUTH STORE
+// ==========================================
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -41,7 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       id: userData.email, 
       name: userData.nome,
       email: userData.email,
-      role: 'admin', // Corrigido de 'user' para 'admin' para aceitar o tipo restrito
+      role: 'admin',
       createdAt: new Date().toISOString(),
     };
 
@@ -58,20 +61,20 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    // 1. Limpa os storages locais
     await storage.removeItem('df_token');
     await storage.removeItem('df_user');
     
-    // 2. Reseta o estado de autenticação
     set({ user: null, token: null, isAuthenticated: false });
 
-    // 3. Limpa os dados residuais das outras stores na memória
     useProjectStore.setState({ projects: [], selectedProject: null });
     useTransactionStore.setState({ transactions: [], total: 0 });
     useDashboardStore.setState({ data: null });
   },
 }));
 
+// ==========================================
+// 2. DASHBOARD STORE
+// ==========================================
 interface DashboardState {
   data: DashboardData | null;
   isLoading: boolean;
@@ -94,6 +97,13 @@ export const useDashboardStore = create<DashboardState>((set) => ({
 
       if (txsError) throw txsError;
 
+      // 2. Busca obras para calcular projetos ativos
+      const { data: obras, error: obrasError } = await supabase
+        .from('obras')
+        .select('status');
+
+      if (obrasError) throw obrasError;
+
       let receitas = 0;
       let despesas = 0;
 
@@ -106,28 +116,53 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         }
       });
 
-      // 2. Mapeia estritamente as transações recentes corrigindo o erro de sintaxe do clone de array
-      const mappedRecent: Transaction[] = (txs || []).slice(0, 5).map((t: any): Transaction => ({
-        id: String(t.id),
-        project_id: String(t.obra_id),
-        amount: Number(t.valor),
-        type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
-        date: t.data,
-        description: t.descricao,
-        category: t.categoria || 'Geral',
-        user_id: 'sistema',
-        createdAt: t.data || new Date().toISOString(),
-        payment_method: t.forma_pagamento || 'Dinheiro',
-        status: t.status || 'pago',
-      }));
+      const lucro = receitas - despesas;
+      const margemCalculada = receitas > 0 ? ((lucro / receitas) * 100).toFixed(1) : '0.0';
+
+      // Filtra de acordo com o enum estrito definido no types.ts
+      const activeProjectsCount = obras?.filter(
+        (o: any) => o.status === 'em_andamento' || o.status === 'orcamento'
+      ).length || 0;
+
+      // 3. Mapeia as transações recentes com fallbacks e enums válidos em minúsculo
+      const mappedRecent: Transaction[] = (txs || []).slice(0, 6).map((t: any): Transaction => {
+        const safePaymentMethod = String(t.forma_pagamento || 'dinheiro').toLowerCase() as Transaction['payment_method'];
+        const safeStatus = String(t.status || 'pago').toLowerCase() as Transaction['status'];
+
+        return {
+          id: String(t.id),
+          project_id: t.obra_id ? String(t.obra_id) : undefined,
+          amount: Number(t.valor),
+          type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
+          date: t.data || new Date().toISOString().split('T')[0],
+          description: t.descricao || '',
+          user_id: 'sistema',
+          createdAt: t.data || new Date().toISOString(),
+          payment_method: ['dinheiro', 'pix', 'transferencia', 'boleto', 'cartao', 'cheque', 'outro'].includes(safePaymentMethod) ? safePaymentMethod : 'outro',
+          status: ['pendente', 'pago', 'cancelado', 'atrasado'].includes(safeStatus) ? safeStatus : 'pago',
+        };
+      });
 
       set({
         data: {
-          totalIncome: receitas,
-          totalExpenses: despesas,
-          balance: receitas - despesas,
+          month: {
+            receita: receitas,
+            despesa: despesas,
+            lucro: lucro,
+            margem: margemCalculada,
+          },
+          lastMonth: {
+            receita: 0,
+            despesa: 0,
+            lucro: 0,
+          },
+          growth: {
+            receita: '0%',
+            despesa: '0%',
+          },
+          activeProjects: activeProjectsCount,
           recentTransactions: mappedRecent,
-        } as any,
+        },
         isLoading: false,
       });
     } catch (e: any) {
@@ -136,6 +171,59 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   },
 }));
 
+// ==========================================
+// FUNÇÕES AUXILIARES DE MAPEAMENTO ESTRETO
+// ==========================================
+const mapProject = (o: any): Project => {
+  const allowedStatus: Project['status'][] = ['orcamento', 'em_andamento', 'concluido', 'cancelado', 'pausado'];
+  const allowedTypes: Project['type'][] = ['fundacao', 'alvenaria', 'levantamento_paredes', 'cobertura', 'reboco', 'completo', 'outro'];
+
+  // Proteção: garante que estamos convertendo strings válidas e tratando nulos antes do lowercase
+  const safeStatus = (String(o.status || '').toLowerCase()) as Project['status'];
+  const safeType = (String(o.tipo_de_obra || '').toLowerCase()) as Project['type'];
+
+  return {
+    id: String(o.id || ''),
+    name: o.nome_da_obra || 'Obra sem nome',
+    client: o.cliente || 'Cliente não informado',
+    address: o.endereco || undefined,
+    description: o.descricao || undefined,
+    
+    // Valida se o status existe na lista permitida; caso contrário, fallback para 'em_andamento'
+    status: allowedStatus.includes(safeStatus) ? safeStatus : 'em_andamento',
+    
+    // Valida se o tipo existe na lista permitida; caso contrário, fallback para 'outro'
+    type: allowedTypes.includes(safeType) ? safeType : 'outro',
+    
+    // Converte orçamento forçando para número (trata valores NaN como 0)
+    budget: Number(o.orçamento_total) || 0,
+    
+    user_id: String(o.user_id || 'sistema'),
+    createdAt: o.data_inicio || new Date().toISOString(),
+  };
+};
+
+const mapTransaction = (t: any): Transaction => {
+  const safePaymentMethod = String(t.forma_pagamento || 'dinheiro').toLowerCase() as Transaction['payment_method'];
+  const safeStatus = String(t.status || 'pago').toLowerCase() as Transaction['status'];
+
+  return {
+    id: String(t.id),
+    project_id: t.obra_id ? String(t.obra_id) : undefined,
+    amount: Number(t.valor),
+    type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
+    date: t.data || new Date().toISOString().split('T')[0],
+    description: t.descricao || '',
+    user_id: 'sistema',
+    createdAt: t.data || new Date().toISOString(),
+    payment_method: ['dinheiro', 'pix', 'transferencia', 'boleto', 'cartao', 'cheque', 'outro'].includes(safePaymentMethod) ? safePaymentMethod : 'outro',
+    status: ['pendente', 'pago', 'cancelado', 'atrasado'].includes(safeStatus) ? safeStatus : 'pago',
+  };
+};
+
+// ==========================================
+// 3. PROJECT STORE
+// ==========================================
 interface ProjectState {
   projects: Project[];
   selectedProject: Project | null;
@@ -169,17 +257,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const { data, error } = await query;
       if (error) throw error;
 
-      const mappedProjects: Project[] = (data || []).map((o: any): Project => ({
-        id: String(o.id),
-        name: o.nome_da_obra,
-        client: o.cliente,
-        status: o.status || 'active',
-        type: o.tipo_de_obra || 'Geral',
-        budget: Number(o.orçamento_total) || 0,
-        user_id: 'sistema',
-        createdAt: o.data_inicio || new Date().toISOString(),
-      }));
-
+      const mappedProjects: Project[] = (data || []).map(mapProject);
       set({ projects: mappedProjects, isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
@@ -187,7 +265,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   fetchOne: async (id: string) => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       const { data: obra, error: obraError } = await supabase
         .from('obras')
@@ -204,33 +282,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       if (txsError) throw txsError;
 
-      const mappedObra: Project | null = obra ? {
-        id: String(obra.id),
-        name: obra.nome_da_obra,
-        client: obra.cliente,
-        status: obra.status || 'active',
-        type: obra.tipo_de_obra || 'Geral',
-        budget: Number(obra.orçamento_total) || 0,
-        user_id: 'sistema',
-        createdAt: obra.data_inicio || new Date().toISOString(),
-      } : null;
-
-      const mappedTransactions: Transaction[] = (txs || []).map((t: any): Transaction => ({
-        id: String(t.id),
-        project_id: String(t.obra_id),
-        amount: Number(t.valor),
-        type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
-        date: t.data,
-        description: t.descricao,
-        category: t.categoria || 'Geral',
-        user_id: 'sistema',
-        createdAt: t.data || new Date().toISOString(),
-        payment_method: t.forma_pagamento || 'Dinheiro', // Propriedade obrigatória do front adicionada
-        status: t.status || 'pago',                     // Propriedade obrigatória do front adicionada
-      }));
+      const mappedObra = obra ? mapProject(obra) : null;
+      const mappedTransactions = (txs || []).map(mapTransaction);
 
       set({ 
-        selectedProject: mappedObra ? { ...mappedObra, transactions: mappedTransactions } as any : null, 
+        selectedProject: mappedObra ? { ...mappedObra, transactions: mappedTransactions } : null, 
         isLoading: false 
       });
     } catch (e: any) {
@@ -242,10 +298,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const payload = {
       nome_da_obra: data.name,
       cliente: data.client,
-      status: data.status || 'active',
+      status: data.status || 'em_andamento',
       orçamento_total: data.budget || 0,
       endereco: data.address || '',
-      tipo_de_obra: data.type || 'Geral',
+      tipo_de_obra: data.type || 'outro',
       data_inicio: data.startDate || new Date().toISOString().split('T')[0],
     };
 
@@ -257,17 +313,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     if (error) throw error;
 
-    const newProject: Project = {
-      id: String(res.id),
-      name: res.nome_da_obra,
-      client: res.cliente,
-      status: res.status || 'active',
-      type: res.tipo_de_obra || 'Geral',
-      budget: Number(res.orçamento_total) || 0,
-      user_id: 'sistema',
-      createdAt: res.data_inicio || new Date().toISOString(),
-    };
-
+    const newProject = mapProject(res);
     set((state: ProjectState) => ({ projects: [newProject, ...state.projects] }));
     return newProject;
   },
@@ -299,6 +345,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 }));
 
+// ==========================================
+// 4. TRANSACTION STORE
+// ==========================================
 interface TransactionState {
   transactions: Transaction[];
   isLoading: boolean;
@@ -331,20 +380,7 @@ export const useTransactionStore = create<TransactionState>((set) => ({
       const { data, error, count } = await query;
       if (error) throw error;
 
-      const mappedTxs: Transaction[] = (data || []).map((t: any): Transaction => ({
-        id: String(t.id),
-        project_id: String(t.obra_id),
-        amount: Number(t.valor),
-        type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
-        date: t.data,
-        description: t.descricao,
-        category: t.categoria || 'Geral',
-        user_id: 'sistema',
-        createdAt: t.data || new Date().toISOString(),
-        payment_method: t.forma_pagamento || 'Dinheiro', // Propriedade obrigatória do front adicionada
-        status: t.status || 'pago',                     // Propriedade obrigatória do front adicionada
-      }));
-
+      const mappedTxs = (data || []).map(mapTransaction);
       set({ transactions: mappedTxs, total: count || 0, isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
@@ -360,7 +396,7 @@ export const useTransactionStore = create<TransactionState>((set) => ({
       obra_id: Number(data.project_id),
       status: data.status || 'pago',
       categoria: data.category || 'Geral',
-      forma_pagamento: data.payment_method || 'Dinheiro'
+      forma_pagamento: data.payment_method || 'dinheiro'
     };
 
     const { data: res, error } = await supabase
@@ -371,24 +407,10 @@ export const useTransactionStore = create<TransactionState>((set) => ({
 
     if (error) throw error;
 
-    const newTx: Transaction = {
-      id: String(res.id),
-      project_id: String(res.obra_id),
-      amount: Number(res.valor),
-      type: res.tipo_transacao === 'receita' ? 'receita' : 'despesa',
-      date: res.data,
-      description: res.descricao,
-      category: res.categoria || 'Geral',
-      user_id: 'sistema',
-      createdAt: res.data || new Date().toISOString(),
-      payment_method: res.forma_pagamento || 'Dinheiro', // Propriedade obrigatória do front adicionada
-      status: res.status || 'pago',                     // Propriedade obrigatória do front adicionada
-    };
-
+    const newTx = mapTransaction(res);
     set((state: TransactionState) => ({ transactions: [newTx, ...state.transactions] }));
     
     useDashboardStore.getState().fetch();
-    
     return newTx;
   },
 
@@ -405,6 +427,9 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   },
 }));
 
+// ==========================================
+// 5. CATEGORY STORE
+// ==========================================
 interface CategoryState {
   categories: Category[];
   fetchAll: (params?: Record<string, any>) => Promise<void>;
