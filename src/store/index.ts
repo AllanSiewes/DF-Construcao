@@ -389,47 +389,48 @@ export const useTransactionStore = create<TransactionState>((set) => ({
 
   create: async (data: Record<string, any>) => {
   
+  const { supabase: localSupabase } = require('../services/supabaseClient');
+    
   if (!data.amount) throw new Error("Valor da transação é obrigatório");
 
   const payload = {
-    tipo_transacao: data.type === 'revenue' || data.type === 'receita' ? 'receita' : 'despesa',
-    valor: Number(data.amount) || 0,
-    descricao: data.description || 'Transação de Obra',
-    data: data.date ? data.date.split('T')[0] : new Date().toISOString().split('T')[0],
-    obra_id: data.project_id ? Number(data.project_id) : null,
-    status: data.status || 'pago',
-    categoria: data.category || 'Geral',
-    forma_pagamento: data.payment_method || 'dinheiro'
-  };
+      tipo_transacao: data.type === 'revenue' || data.type === 'receita' ? 'receita' : 'despesa',
+      valor: Number(data.amount) || 0,
+      descricao: data.description || 'Transação de Obra',
+      data: data.date ? data.date.split('T')[0] : new Date().toISOString().split('T')[0],
+      obra_id: data.project_id ? Number(data.project_id) : null,
+      status: data.status || 'pago',
+      categoria: data.category || 'Geral',
+      forma_pagamento: data.payment_method || 'dinheiro'
+    };
 
     try {
-    console.log("DEBUG: Iniciando insert de transação...", payload);
-    
-    const { data: res, error } = await supabase
-      .from('transacoes')
-      .insert([payload])
-      .select()
-      .single();
+      // 2. Usar a instância local forçada
+      const { data: res, error } = await localSupabase
+        .from('transacoes')
+        .insert([payload])
+        .select()
+        .single();
 
-    if (error) {
-      console.error("DEBUG: Erro retornado pelo Supabase:", error);
-      throw error;
-    }
+      if (error) {
+        console.error("DEBUG - Erro Supabase no insert:", JSON.stringify(error));
+        throw error;
+      }
 
-    const newTx = mapTransaction(res);
-    set((state: TransactionState) => ({ 
-      transactions: [newTx, ...state.transactions] 
-    }));
+      const newTx = mapTransaction(res);
+      set((state: TransactionState) => ({ 
+        transactions: [newTx, ...state.transactions] 
+      }));
     
     // Atualiza o dashboard após sucesso
     await useDashboardStore.getState().fetch();
     
     return newTx;
-  } catch (err) {
-    console.error("DEBUG: Erro crítico na criação da transação:", err);
-    throw err;
-  }
-},
+    } catch (err) {
+      console.error("DEBUG - Erro crítico na TransactionStore:", err);
+      throw err;
+    }
+  },
 
   remove: async (id: string) => {
     const { error } = await supabase
