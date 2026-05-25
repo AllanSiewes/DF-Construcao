@@ -35,9 +35,9 @@ export const DashboardScreen: React.FC = () => {
   // Acessamos as propriedades através de um cast temporário seguro para desviar da inconsistência do 'DashboardData'
   const storeData = data as any;
 
-  const receita = Number(storeData?.totalIncome || 0);
-  const despesa = Number(storeData?.totalExpenses || 0);
-  const lucro = Number(storeData?.balance || 0);
+  const receita = Number(storeData?.month?.receita || storeData?.month?.revenue || 0);
+  const despesa = Number(storeData?.month?.despesa || storeData?.month?.expense || 0);
+  const lucro = Number(storeData?.month?.lucro || storeData?.month?.profit || 0);
   
   // Cálculo em tempo de execução da margem real com tratamento para divisão por zero
   const margemNumerica = receita > 0 ? (lucro / receita) * 100 : 0;
