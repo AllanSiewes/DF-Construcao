@@ -108,10 +108,13 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       let despesas = 0;
 
       txs?.forEach((t: any) => {
-        const valor = Number(t.valor);
-        if (t.tipo_transacao === 'receita') {
+        const valor = Number(t.valor) || 0;
+        // Transforma tudo em minúsculo e tira espaços perdidos nas bordas
+        const tipoLimpo = String(t.tipo_transacao || '').trim().toLowerCase();
+        
+        if (tipoLimpo === 'receita' || tipoLimpo === 'revenue') {
           receitas += valor;
-        } else if (t.tipo_transacao === 'despesa') {
+        } else if (tipoLimpo === 'despesa' || tipoLimpo === 'expense') {
           despesas += valor;
         }
       });
@@ -187,7 +190,6 @@ const mapProject = (o: any): Project => {
   const allowedStatus: Project['status'][] = ['orcamento', 'em_andamento', 'concluido', 'cancelado', 'pausado'];
   const allowedTypes: Project['type'][] = ['fundacao', 'alvenaria', 'levantamento_paredes', 'cobertura', 'reboco', 'completo', 'outro'];
 
-  // Proteção: garante que estamos convertendo strings válidas e tratando nulos antes do lowercase
   const safeStatus = (String(o.status || '').toLowerCase()) as Project['status'];
   const safeType = (String(o.tipo_de_obra || '').toLowerCase()) as Project['type'];
 
@@ -197,18 +199,16 @@ const mapProject = (o: any): Project => {
     client: o.cliente || 'Cliente não informado',
     address: o.endereco || undefined,
     description: o.descricao || undefined,
-    
-    // Valida se o status existe na lista permitida; caso contrário, fallback para 'em_andamento'
     status: allowedStatus.includes(safeStatus) ? safeStatus : 'em_andamento',
-    
-    // Valida se o tipo existe na lista permitida; caso contrário, fallback para 'outro'
     type: allowedTypes.includes(safeType) ? safeType : 'outro',
-    
-    // Converte orçamento forçando para número (trata valores NaN como 0)
     budget: Number(o.orçamento_total) || 0,
-    
     user_id: String(o.user_id || 'sistema'),
     createdAt: o.data_inicio || new Date().toISOString(),
+    
+    // A MÁGICA AQUI: Mapeando os totais (com fallback para variações de nome no banco)
+    total_receita: Number(o.total_receita || o.receita || o.receitas || 0),
+    total_despesa: Number(o.total_despesa || o.despesa || o.despesas || 0),
+    lucro: Number(o.lucro || 0),
   };
 };
 
@@ -295,6 +295,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       const mappedObra = obra ? mapProject(obra) : null;
       const mappedTransactions = (txs || []).map(mapTransaction);
+
+      // CÁLCULO DINÂMICO À PROVA DE FALHAS:
+      // Se a tabela 'obras' estiver zerada, o app calcula os totais reais somando as transações.
+      if (mappedObra) {
+        let receitaReal = 0;
+        let despesaReal = 0;
+        
+        mappedTransactions.forEach(t => {
+            if (t.type === 'receita') receitaReal += t.amount;
+            else if (t.type === 'despesa') despesaReal += t.amount;
+        });
+
+        // Força a exibição dos cálculos exatos baseados nas transações vinculadas
+        mappedObra.total_receita = receitaReal;
+        mappedObra.total_despesa = despesaReal;
+        mappedObra.lucro = receitaReal - despesaReal;
+      }
 
       set({ 
         selectedProject: mappedObra ? { ...mappedObra, transactions: mappedTransactions } : null, 
