@@ -256,19 +256,44 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchAll: async (params?: Record<string, any>) => {
     set({ isLoading: true, error: null });
     try {
+      // 1. Busca todas as obras
       let query = supabase.from('obras').select('*').order('id', { ascending: false });
 
-      if (params?.status) {
-        query = query.eq('status', params.status);
-      }
-      if (params?.search) {
-        query = query.ilike('nome_da_obra', `%${params.search}%`);
-      }
+      if (params?.status) query = query.eq('status', params.status);
+      if (params?.search) query = query.ilike('nome_da_obra', `%${params.search}%`);
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: obras, error: obrasError } = await query;
+      if (obrasError) throw obrasError;
 
-      const mappedProjects: Project[] = (data || []).map(mapProject);
+      // 2. Busca todas as transações de uma vez para calcular os totais
+      const { data: transacoes, error: txError } = await supabase
+        .from('transacoes')
+        .select('obra_id, valor, tipo_transacao');
+      
+      if (txError) throw txError;
+
+      // 3. Mapeia e calcula os totais para cada obra
+      const mappedProjects: Project[] = (obras || []).map((o: any) => {
+        const txsDaObra = (transacoes || []).filter(t => String(t.obra_id) === String(o.id));
+        
+        let receita = 0;
+        let despesa = 0;
+        
+        txsDaObra.forEach(t => {
+          const valor = Number(t.valor) || 0;
+          if (t.tipo_transacao === 'receita') receita += valor;
+          else if (t.tipo_transacao === 'despesa') despesa += valor;
+        });
+
+        // Retorna o objeto mapeado com os totais calculados
+        return {
+          ...mapProject(o),
+          total_receita: receita,
+          total_despesa: despesa,
+          lucro: receita - despesa
+        };
+      });
+
       set({ projects: mappedProjects, isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
