@@ -63,15 +63,23 @@ export interface DashboardData {
     despesa: number;
     lucro: number;
     margem: string;
+    revenue?: number;   // Adicionado
+    expense?: number;   // Adicionado
+    profit?: number;    // Adicionado
   };
   lastMonth: {
     receita: number;
     despesa: number;
     lucro: number;
+    revenue?: number;   // Adicionado
+    expense?: number;   // Adicionado
+    profit?: number;    // Adicionado
   };
   growth: {
-    receita: string | null;
-    despesa: string | null;
+    receita: string;
+    despesa: string;
+    revenue?: string;   // Adicionado
+    expense?: string;   // Adicionado
   };
   activeProjects: number;
   recentTransactions: Transaction[];

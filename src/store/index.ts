@@ -132,6 +132,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         return {
           id: String(t.id),
           project_id: t.obra_id ? String(t.obra_id) : undefined,
+          project_name: t.obras?.nome_da_obra || 'Geral', // <--- ADICIONE ESTA LINHA AQUI
           amount: Number(t.valor),
           type: t.tipo_transacao === 'receita' ? 'receita' : 'despesa',
           date: t.data || new Date().toISOString().split('T')[0],
@@ -150,15 +151,23 @@ export const useDashboardStore = create<DashboardState>((set) => ({
             despesa: despesas,
             lucro: lucro,
             margem: margemCalculada,
+            revenue: receitas,
+            expense: despesas,
+            profit: lucro,
           },
           lastMonth: {
             receita: 0,
             despesa: 0,
             lucro: 0,
+            revenue: 0,
+            expense: 0,
+            profit: 0,
           },
           growth: {
             receita: '0%',
             despesa: '0%',
+            revenue: '0%',
+            expense: '0%',
           },
           activeProjects: activeProjectsCount,
           recentTransactions: mappedRecent,
@@ -369,7 +378,7 @@ export const useTransactionStore = create<TransactionState>((set) => ({
   fetchAll: async (params?: Record<string, any>) => {
     set({ isLoading: true, error: null });
     try {
-      let query = supabase.from('transacoes').select('*', { count: 'exact' }).order('data', { ascending: false });
+      let query = supabase.from('transacoes').select('*, obras(nome_da_obra)', { count: 'exact' }).order('data', { ascending: false });
 
       if (params?.type) {
         const dbType = params.type === 'revenue' || params.type === 'receita' ? 'receita' : 'despesa';
